@@ -37,8 +37,11 @@ jobs:
           VIDEO_URL: https://www.youtube.com/watch?v=JIFs44KesgQ
         run: |
           set -euo pipefail
+          node --version
           python -m yt_dlp \
             --no-playlist \
+            --js-runtimes node \
+            --extractor-args "youtube:player_client=web_embedded" \
             -f "bestaudio/best" \
             -o "$RUNNER_TEMP/therapy.%(ext)s" \
             "$VIDEO_URL"
