@@ -1,0 +1,83 @@
+name: Therapy audio chord analysis
+
+on:
+  push:
+    branches:
+      - therapy-audio-analysis
+    paths:
+      - .github/workflows/therapy-audio-analysis.yml
+      - tools/therapy_chords.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install analysis dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install librosa numpy scipy
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Download official Therapy audio
+        env:
+          VIDEO_URL: https://www.youtube.com/watch?v=JIFs44KesgQ
+        run: |
+          set -euo pipefail
+          python -m yt_dlp \
+            --no-playlist \
+            -f "bestaudio/best" \
+            -o "$RUNNER_TEMP/therapy.%(ext)s" \
+            "$VIDEO_URL"
+
+          input_file="$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'therapy.*' | head -n 1)"
+          test -n "$input_file"
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -i "$input_file" \
+            -ac 1 -ar 22050 \
+            "$RUNNER_TEMP/therapy.wav"
+
+          rm -f "$input_file"
+
+      - name: Derive chord evidence
+        run: |
+          set -euo pipefail
+          python tools/therapy_chords.py \
+            "$RUNNER_TEMP/therapy.wav" \
+            "$GITHUB_WORKSPACE/analysis"
+
+          rm -f "$RUNNER_TEMP/therapy.wav"
+
+          {
+            echo "## Therapy chord-analysis receipt"
+            echo
+            echo "Derived from the official YouTube audio using this exact fork revision."
+            echo
+            echo "No downloaded audio is retained as an artifact."
+            echo
+            cat analysis/summary.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload derived text only
+        uses: actions/upload-artifact@v4
+        with:
+          name: therapy-chord-analysis
+          path: |
+            analysis/summary.txt
+            analysis/beats.txt
+          if-no-files-found: error
+          retention-days: 7
