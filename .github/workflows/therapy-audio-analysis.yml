@@ -33,18 +33,48 @@ jobs:
           sudo apt-get install -y ffmpeg
 
       - name: Download official Therapy audio
-        env:
-          VIDEO_URL: https://www.youtube.com/watch?v=JIFs44KesgQ
         run: |
           set -euo pipefail
           node --version
-          python -m yt_dlp \
-            --no-playlist \
-            --js-runtimes node \
-            --extractor-args "youtube:player_client=web_embedded" \
-            -f "bestaudio/best" \
-            -o "$RUNNER_TEMP/therapy.%(ext)s" \
-            "$VIDEO_URL"
+
+          video_ids=(
+            JIFs44KesgQ
+            Zyc7uCj4Xec
+          )
+
+          clients=(
+            web_music
+            android_music
+            ios_music
+            android_vr
+            web_embedded
+            tv_embedded
+          )
+
+          got_audio=0
+
+          for video_id in "${video_ids[@]}"; do
+            for client in "${clients[@]}"; do
+              rm -f "$RUNNER_TEMP"/therapy.*
+              echo "Trying official video $video_id with client $client"
+
+              if python -m yt_dlp \
+                --no-playlist \
+                --js-runtimes node \
+                --extractor-args "youtube:player_client=$client" \
+                -f "bestaudio/best" \
+                -o "$RUNNER_TEMP/therapy.%(ext)s" \
+                "https://www.youtube.com/watch?v=$video_id"
+              then
+                got_audio=1
+                echo "Selected video=$video_id client=$client"
+                printf 'video_id=%s\nclient=%s\n' "$video_id" "$client" > "$RUNNER_TEMP/source.txt"
+                break 2
+              fi
+            done
+          done
+
+          test "$got_audio" -eq 1
 
           input_file="$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'therapy.*' | head -n 1)"
           test -n "$input_file"
@@ -63,14 +93,17 @@ jobs:
             "$RUNNER_TEMP/therapy.wav" \
             "$GITHUB_WORKSPACE/analysis"
 
+          cp "$RUNNER_TEMP/source.txt" analysis/source.txt
           rm -f "$RUNNER_TEMP/therapy.wav"
 
           {
             echo "## Therapy chord-analysis receipt"
             echo
-            echo "Derived from the official YouTube audio using this exact fork revision."
+            echo "Derived from an official YouTube upload using this exact fork revision."
             echo
             echo "No downloaded audio is retained as an artifact."
+            echo
+            cat analysis/source.txt
             echo
             cat analysis/summary.txt
           } >> "$GITHUB_STEP_SUMMARY"
@@ -80,6 +113,7 @@ jobs:
         with:
           name: therapy-chord-analysis
           path: |
+            analysis/source.txt
             analysis/summary.txt
             analysis/beats.txt
           if-no-files-found: error
